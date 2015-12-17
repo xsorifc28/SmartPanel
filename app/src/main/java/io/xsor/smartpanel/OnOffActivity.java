@@ -86,7 +86,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
 
         try {
             pubnub.subscribe(smartPanelCh, subscribeCallback);
-            //pubnub.presence(smartPanelCh, presenceCallback);
+            pubnub.presence(smartPanelCh, presenceCallback);
         } catch (PubnubException e) {
             System.out.println(e.toString());
         }
@@ -99,11 +99,6 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
             sendMessage(breakerName + SEP
                     + gpioPin + SEP
                     + STATUS);
-            try {
-                pubnub.presence(smartPanelCh,presenceCallback);
-            } catch (PubnubException e) {
-                e.printStackTrace();
-            }
         }
 
         @Override
@@ -130,26 +125,31 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
     };
 
     Callback presenceCallback = new Callback() {
-
         @Override
-        public void successCallback(String channel, Object message) {
-            log("presenceCallback, SUCCESS on " + channel + " : " + message.toString());
+        public void connectCallback(String channel, Object message) {
+            super.connectCallback(channel, message);
+
+            log("presenceCallback, CONNECT to " + channel + " : " + message.toString());
             pubnub.hereNow(smartPanelCh, new Callback() {
                 @Override
                 public void successCallback(String channel, Object message) {
                     super.successCallback(channel, message);
-                    log("hereNow: " + message);
 
                     JSONObject jo = (JSONObject) message;
-                    log("jsonMessage: " + jo.toString());
+
                     try {
                         jo.getJSONArray("uuids");
-                        log("Array: " + jo.getJSONArray("uuids").toString());
+                        log("Array of uuids: " + jo.getJSONArray("uuids").toString());
                     } catch (JSONException e) {
                         e.printStackTrace();
                     }
                 }
             });
+        }
+
+        @Override
+        public void successCallback(String channel, Object message) {
+            log("presenceCallback, SUCCESS on " + channel + " : " + message.toString());
         }
 
         @Override
