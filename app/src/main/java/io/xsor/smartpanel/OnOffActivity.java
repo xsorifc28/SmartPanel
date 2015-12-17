@@ -1,7 +1,5 @@
 package io.xsor.smartpanel;
 
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -9,16 +7,15 @@ import android.text.InputType;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
 
+import com.afollestad.materialdialogs.DialogAction;
 import com.afollestad.materialdialogs.MaterialDialog;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
 import com.pubnub.api.Callback;
 import com.pubnub.api.Pubnub;
 import com.pubnub.api.PubnubError;
 import com.pubnub.api.PubnubException;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -26,7 +23,8 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
 
     private static final String SEP = "_";
     private static final String SERVER_UUID = "Matt-RaspberryPi";
-    
+    private static final String STATUS_STR = "status";
+
     private Pubnub pubnub;
 
     private String smartPanelCh = "SmartPanelCh";
@@ -47,6 +45,8 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
     int OFF = 0;
     int STATUS = 2;
 
+    private MaterialDialog noServerDialog;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -64,6 +64,17 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         breakerName = getIntent().getStringExtra("breakerName");
         gpioPin = getIntent().getStringExtra("gpioPin");
         connectToPubnub();
+
+        noServerDialog = new MaterialDialog.Builder(OnOffActivity.this)
+                .title("Error")
+                .content("Server not found")
+                .onPositive(new MaterialDialog.SingleButtonCallback() {
+                    @Override
+                    public void onClick(@NonNull MaterialDialog materialDialog, @NonNull DialogAction dialogAction) {
+                        finish();
+                    }
+                })
+                .build();
 
     }
 
@@ -138,8 +149,12 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
                     JSONObject jo = (JSONObject) message;
 
                     try {
-                        jo.getJSONArray("uuids");
-                        log("Array of uuids: " + jo.getJSONArray("uuids").toString());
+                        JSONArray uuids = jo.getJSONArray("uuids");
+                        log("Array of uuids: " + uuids.toString());
+                        if(!uuidExists(uuids,SERVER_UUID)) {
+                            log("Matt not found.");
+                            //noServerDialog.show();
+                        }
                     } catch (JSONException e) {
                         e.printStackTrace();
                     }
@@ -157,6 +172,10 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
             log("presenceCallback, ERROR on " + channel + " : " + error.toString());
         }
     };
+
+    private boolean uuidExists(JSONArray jsonArray, String usernameToFind){
+        return jsonArray.toString().contains("\"username\":\""+usernameToFind+"\"");
+    }
 
     @Override
     public void onClick(View view) {
