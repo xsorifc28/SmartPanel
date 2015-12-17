@@ -4,8 +4,10 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.text.InputType;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -14,6 +16,9 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+
+import com.afollestad.materialdialogs.DialogAction;
+import com.afollestad.materialdialogs.MaterialDialog;
 
 import java.util.ArrayList;
 
@@ -26,13 +31,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private final static String BREAKER_LIST = "BreakerList";
 
+    private Breaker tempBreaker;
+
+    private MaterialDialog gpioDialog;
+    private MaterialDialog breakerNameDialog;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         setContentView(R.layout.activity_main);
+
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
         toolbar.setTitle("Breakers");
+        setSupportActionBar(toolbar);
+
+        createDialogs();
 
         db = new TinyDB(this);
 
@@ -42,7 +56,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             Breaker c = (Breaker) b;
             addBreakerButton(c.getName());
             log(b.toString());
-
         }
     }
 
@@ -78,39 +91,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void addBreaker() {
-        LinearLayout lila1= new LinearLayout(this);
-        lila1.setOrientation(LinearLayout.VERTICAL); //1 is for vertical orientation
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-
-        int margin = (int) getResources().getDimension(R.dimen.activity_horizontal_margin);
-
-        layoutParams.setMargins(margin,margin,0,margin);
-        lila1.setLayoutParams(layoutParams);
-
-        final EditText name = new EditText(this);
-        final EditText gpioPin = new EditText(this);
-        name.setHint("Breaker Name");
-        gpioPin.setHint("GPIO Pin");
-        lila1.addView(name);
-        lila1.addView(gpioPin);
-
-        new AlertDialog.Builder(this)
-                .setTitle("New Breaker")
-                .setCancelable(false)
-                .setView(lila1)
-                .setPositiveButton("Confirm", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialogInterface, int i) {
-                        Breaker b = new Breaker(name.getText().toString(),gpioPin.getText().toString());
-                        addBreakerButton(b.getName());
-                        breakerList.add(b);
-                        db.putListObject(BREAKER_LIST,breakerList);
-                    }
-                })
-                .setNeutralButton("Cancel",null)
-                .show();
-
+        breakerNameDialog.show();
     }
 
     private void log(String message) {
@@ -121,8 +102,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public void onClick(View view) {
         Intent i = new Intent(this,OnOffActivity.class);
         Breaker b = (Breaker)breakerList.get(view.getId());
-        i.putExtra("breakerName",b.getName());
-        i.putExtra("gpioPin",b.getGpioPin());
+        i.putExtra("breakerName", b.getName());
+        i.putExtra("gpioPin", b.getGpioPin());
 
         log(b.toString());
 
@@ -131,21 +112,59 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     public boolean onLongClick(final View view) {
-        new AlertDialog.Builder(this)
-                .setTitle("Remove Breaker")
-                .setCancelable(false)
-                .setMessage("Are you sure you want to remove this breaker?")
-                .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+
+        new MaterialDialog.Builder(this)
+                .title("Remove Breaker")
+                .content("Are you sure you want to remove this breaker?")
+                .positiveText("Yes")
+                .onPositive(new MaterialDialog.SingleButtonCallback() {
                     @Override
-                    public void onClick(DialogInterface dialogInterface, int i) {
+                    public void onClick(@NonNull MaterialDialog materialDialog, @NonNull DialogAction dialogAction) {
                         breakerList.remove(view.getId());
                         db.putListObject(BREAKER_LIST, breakerList);
                         recreate();
                     }
                 })
-            .setNegativeButton("No",null)
-            .show();
+                .neutralText("Cancel")
+                .show();
 
         return false;
+    }
+
+
+    private void createDialogs() {
+        gpioDialog = new MaterialDialog.Builder(this)
+                .title("Set GPIO")
+                .content("Please enter GPIO number:")
+                .inputType(InputType.TYPE_CLASS_NUMBER)
+                .inputRangeRes(1, 2, R.color.md_red_500)
+                .input("3", null, new MaterialDialog.InputCallback() {
+                    @Override
+                    public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
+                        tempBreaker.setGpioPin(input.toString());
+                        addBreakerButton(tempBreaker.getName());
+                        breakerList.add(tempBreaker);
+                        db.putListObject(BREAKER_LIST, breakerList);
+                        tempBreaker = null;
+                    }
+                })
+                .positiveText("Confirm")
+                .neutralText("Cancel")
+                .build();
+
+        breakerNameDialog = new MaterialDialog.Builder(this)
+                .title("New Breaker")
+                .content("Are you sure you want to remove this breaker?")
+                .positiveText("Yes")
+                .input("Breaker Name", null, new MaterialDialog.InputCallback() {
+                    @Override
+                    public void onInput(@NonNull MaterialDialog materialDialog, CharSequence input) {
+                        tempBreaker = new Breaker(input.toString());
+                        gpioDialog.show();
+                    }
+                })
+                .positiveText("Next")
+                .neutralText("Cancel")
+                .build();
     }
 }

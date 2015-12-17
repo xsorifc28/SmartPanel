@@ -2,21 +2,30 @@ package io.xsor.smartpanel;
 
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 
+import com.afollestad.materialdialogs.MaterialDialog;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.pubnub.api.Callback;
 import com.pubnub.api.Pubnub;
 import com.pubnub.api.PubnubError;
 import com.pubnub.api.PubnubException;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 public class OnOffActivity extends AppCompatActivity implements View.OnClickListener {
 
-    private static final String SEP  = "_";
+    private static final String SEP = "_";
+    private static final String SERVER_UUID = "Matt-RaspberryPi";
     
     private Pubnub pubnub;
 
@@ -30,6 +39,13 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
 
     String breakerName;
     String gpioPin;
+
+    // Message structure for processing on Raspberry Pi:
+    // BREAKERNAME_GPIO_ACTION_CODE
+
+    int ON = 1;
+    int OFF = 0;
+    int STATUS = 2;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,19 +61,21 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         on.setOnClickListener(this);
         off.setOnClickListener(this);
 
+        breakerName = getIntent().getStringExtra("breakerName");
+        gpioPin = getIntent().getStringExtra("gpioPin");
+        connectToPubnub();
+
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        breakerName = getIntent().getStringExtra("breakerName");
-        gpioPin = getIntent().getStringExtra("gpioPin");
-        connectToPubnub();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        pubnub.unsubscribePresence(smartPanelCh);
         pubnub.unsubscribe(smartPanelCh);
     }
 
@@ -67,88 +85,121 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         pubnub.setUUID(UUID);
 
         try {
-            pubnub.subscribe(smartPanelCh, callback);
+            pubnub.subscribe(smartPanelCh, subscribeCallback);
+            //pubnub.presence(smartPanelCh, presenceCallback);
         } catch (PubnubException e) {
             System.out.println(e.toString());
         }
     }
 
-    Callback callback = new Callback() {
+    Callback subscribeCallback = new Callback() {
         @Override
         public void connectCallback(String channel, Object message) {
-            log("CONNECT on channel:" + channel
-                    + " : " + message.getClass() + " : "
-                    + message.toString());
-            sendMessage("getStatus" + SEP + breakerName);
+            log("subscribeCallback, CONNECT to:" + channel + " : " + message.toString());
+            sendMessage(breakerName + SEP
+                    + gpioPin + SEP
+                    + STATUS);
+            try {
+                pubnub.presence(smartPanelCh,presenceCallback);
+            } catch (PubnubException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
         public void disconnectCallback(String channel, Object message) {
-            log("DISCONNECT on channel:" + channel
-                    + " : " + message.getClass() + " : "
-                    + message.toString());
+            log("subscribeCallback, DISCONNECT from:" + channel
+                    + " : " + message.toString());
         }
 
         @Override
         public void reconnectCallback(String channel, Object message) {
-            log("RECONNECT on channel:" + channel
-                    + " : " + message.getClass() + " : "
-                    + message.toString());
+            log("subscribeCallback, RECONNECT to:" + channel
+                    + " : " + message.toString());
         }
 
         @Override
         public void successCallback(String channel, Object message) {
-            log(channel + " : "
-                    + message.getClass() + " : " + message.toString());
+            log("subscribeCallback, SUCCESS on " + channel + " : " + message.toString());
         }
 
         @Override
         public void errorCallback(String channel, PubnubError error) {
-            log("ERROR on channel " + channel
-                    + " : " + error.toString());
+            log("subscribeCallback, ERROR on " + channel + " : " + error.toString());
+        }
+    };
+
+    Callback presenceCallback = new Callback() {
+
+        @Override
+        public void successCallback(String channel, Object message) {
+            log("presenceCallback, SUCCESS on " + channel + " : " + message.toString());
+            pubnub.hereNow(smartPanelCh, new Callback() {
+                @Override
+                public void successCallback(String channel, Object message) {
+                    super.successCallback(channel, message);
+                    log("hereNow: " + message);
+
+                    JSONObject jo = (JSONObject) message;
+                    log("jsonMessage: " + jo.toString());
+                    try {
+                        jo.getJSONArray("uuids");
+                        log("Array: " + jo.getJSONArray("uuids").toString());
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void errorCallback(String channel, PubnubError error) {
+            log("presenceCallback, ERROR on " + channel + " : " + error.toString());
         }
     };
 
     @Override
     public void onClick(View view) {
 
-        final EditText pinText = new EditText(this);
-
         switch(view.getId()) {
             case R.id.on:
 
-                new AlertDialog.Builder(this)
-                        .setTitle("Confirm Pin")
-                        .setCancelable(false)
-                        .setMessage("Please enter the 4-digit PIN to turn on this breaker")
-                        .setView(pinText)
-                        .setPositiveButton("Confirm", new DialogInterface.OnClickListener() {
+                new MaterialDialog.Builder(this)
+                        .title("Confirm PIN")
+                        .content("Please enter the PIN for this breaker.")
+                        .inputType(InputType.TYPE_CLASS_NUMBER)
+                        .inputRangeRes(4, 4, R.color.md_red_500)
+                        .input("0000", null, new MaterialDialog.InputCallback() {
                             @Override
-                            public void onClick(DialogInterface dialogInterface, int i) {
-                                sendMessage(breakerName + SEP + "on");
-                                sendMessage(pinText.getText().toString());
-                                pinText.setText("");
+                            public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
+                                sendMessage(breakerName + SEP
+                                        + gpioPin + SEP
+                                        + ON + SEP
+                                        + input);
                             }
                         })
-                        .setNeutralButton("Cancel",null)
+                        .positiveText("Confirm")
+                        .neutralText("Cancel")
                         .show();
                 break;
             case R.id.off:
 
-                new AlertDialog.Builder(this)
-                        .setTitle("Set Pin")
-                        .setCancelable(false)
-                        .setMessage("Please enter a 4-digit PIN to turn off this breaker.")
-                        .setView(pinText)
-                        .setPositiveButton("Confirm", new DialogInterface.OnClickListener() {
+                new MaterialDialog.Builder(this)
+                        .title("Set PIN")
+                        .content("Please set a PIN for this breaker.")
+                        .inputType(InputType.TYPE_CLASS_NUMBER)
+                        .inputRangeRes(4, 4, R.color.md_red_500)
+                        .input("0000", null, new MaterialDialog.InputCallback() {
                             @Override
-                            public void onClick(DialogInterface dialogInterface, int i) {
-                                sendMessage(breakerName + SEP + "off");
-                                sendMessage(pinText.getText().toString());
-                                pinText.setText("");
+                            public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
+                                sendMessage(breakerName + SEP
+                                        + gpioPin + SEP
+                                        + OFF + SEP
+                                        + input);
                             }
                         })
-                        .setNeutralButton("Cancel",null)
+                        .positiveText("Confirm")
+                        .neutralText("Cancel")
                         .show();
                 break;
         }

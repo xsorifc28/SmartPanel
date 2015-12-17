@@ -14,6 +14,10 @@ public class Breaker {
         this.name = name;
     }
 
+    public Breaker (String name) {
+        this.name = name;
+    }
+
     public String getName() {
         return name;
     }
