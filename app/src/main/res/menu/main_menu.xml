@@ -3,6 +3,11 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item android:id="@+id/add_breaker"
         android:title="@string/add_breaker"
+        android:icon="@drawable/plus_circle"
+        app:showAsAction="ifRoom"/>
+    <item android:id="@+id/shutdown"
+        android:title="@string/shutdown"
+        android:icon="@drawable/close_circle_outline"
         app:showAsAction="ifRoom"/>
 
 </menu>

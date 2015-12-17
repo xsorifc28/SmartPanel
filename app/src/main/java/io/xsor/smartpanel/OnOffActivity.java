@@ -6,11 +6,9 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.Log;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
+import android.widget.Toast;
 
 import com.afollestad.materialdialogs.DialogAction;
 import com.afollestad.materialdialogs.MaterialDialog;
@@ -28,6 +26,8 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
     private static final String SEP = "_";
     private static final String SERVER_UUID = "Matt-RaspberryPi";
     private static final String STATUS_STR = "status";
+    private static final String WRONG_PIN = "wrongPin";
+
 
     private Pubnub pubnub;
 
@@ -43,8 +43,8 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
     // Message structure for processing on Raspberry Pi:
     // BREAKERNAME_GPIO_ACTION_CODE
 
-    int ON = 1;
-    int OFF = 0;
+    int ON = 0;
+    int OFF = 1;
     int STATUS = 2;
 
     private MaterialDialog noServerDialog;
@@ -80,6 +80,12 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
                 .build();
 
     }
+   /*
+    @Override
+    protected void onStart() {
+        super.onStart();
+        connectToPubnub();
+    }*/
 
     @Override
     protected void onResume() {
@@ -92,25 +98,6 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         super.onStop();
         pubnub.unsubscribePresence(smartPanelCh);
         pubnub.unsubscribe(smartPanelCh);
-    }
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.main_menu, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle item selection
-        switch (item.getItemId()) {
-            case R.id.shutdown:
-                sendMessage("shutdown");
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
-        }
     }
 
     private void connectToPubnub() {
@@ -151,6 +138,16 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         public void successCallback(String channel, Object message) {
             log("subscribeCallback, SUCCESS on " + channel + " : " + message.toString());
             //log("Message has been received: ");
+
+            if(message.toString().equals(WRONG_PIN)) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(OnOffActivity.this,"Wrong PIN! Try again!",Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+
             String[] splitMsg = message.toString().split(SEP);
             if(splitMsg[0].equals(STATUS_STR)) {
                 if(Integer.valueOf(splitMsg[2]) == OFF) {

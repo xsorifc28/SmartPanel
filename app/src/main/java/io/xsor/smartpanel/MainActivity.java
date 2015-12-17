@@ -17,6 +17,10 @@ import android.widget.LinearLayout;
 
 import com.afollestad.materialdialogs.DialogAction;
 import com.afollestad.materialdialogs.MaterialDialog;
+import com.pubnub.api.Callback;
+import com.pubnub.api.Pubnub;
+import com.pubnub.api.PubnubError;
+import com.pubnub.api.PubnubException;
 
 import java.util.ArrayList;
 
@@ -25,11 +29,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private TinyDB db;
     private ArrayList<Object> breakerList = new ArrayList<>();
 
+    private Pubnub pubnub;
+
+    private String smartPanelCh = "SmartPanelCh";
+    private String publishKey;
+    private String subscribeKey;
+
     private int buttonId = 0;
 
     private final static String BREAKER_LIST = "BreakerList";
-
-    private Breaker tempBreaker;
 
     private MaterialDialog GPIODialog;
     private MaterialDialog breakerNameDialog;
@@ -44,7 +52,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         toolbar.setTitle("Breakers");
         setSupportActionBar(toolbar);
 
-        createDialogs();
+        publishKey = getString(R.string.publish_key);
+        subscribeKey = getString(R.string.subscribe_key);
 
         db = new TinyDB(this);
 
@@ -56,6 +65,58 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             log(b.toString());
         }
     }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        connectToPubnub();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        pubnub.unsubscribePresence(smartPanelCh);
+        pubnub.unsubscribe(smartPanelCh);
+    }
+
+    private void connectToPubnub() {
+
+        pubnub = new Pubnub(publishKey, subscribeKey);
+        pubnub.setUUID("Samed-Nexus6P");
+
+        try {
+            pubnub.subscribe(smartPanelCh, subscribeCallback);
+        } catch (PubnubException e) {
+            System.out.println(e.toString());
+        }
+    }
+
+    Callback subscribeCallback = new Callback() {
+        @Override
+        public void connectCallback(String channel, Object message) {
+            log("subscribeCallback, CONNECT to:" + channel + " : " + message.toString());
+        }
+
+        @Override
+        public void disconnectCallback(String channel, Object message) {
+            log("subscribeCallback, DISCONNECT from:" + channel
+                    + " : " + message.toString());
+        }
+
+        @Override
+        public void reconnectCallback(String channel, Object message) {
+            log("subscribeCallback, RECONNECT to:" + channel
+                    + " : " + message.toString());
+        }
+
+        @Override
+        public void successCallback(String channel, Object message) {
+            log("subscribeCallback, SUCCESS on " + channel + " : " + message.toString());
+            //log("Message has been received: ");
+        }
+    };
+
+
 
     private void addBreakerButton(String c) {
         ContextThemeWrapper newContext = new ContextThemeWrapper(this, R.style.BrandButtonStyle);
@@ -84,13 +145,73 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             case R.id.add_breaker:
                 addBreaker();
                 return true;
+            case R.id.shutdown:
+                new MaterialDialog.Builder(this)
+                        .title("Shutdown Server")
+                        .content("Are you sure you want to shutdown the server?")
+                        .positiveText("Yes")
+                        .onPositive(new MaterialDialog.SingleButtonCallback() {
+                            @Override
+                            public void onClick(@NonNull MaterialDialog materialDialog, @NonNull DialogAction dialogAction) {
+                                sendMessage("shutdown");
+                            }
+                        })
+                        .neutralText("Cancel")
+                        .show();
+                return true;
             default:
                 return super.onOptionsItemSelected(item);
         }
     }
 
+    private void sendMessage(String message) {
+        log("sendMessage:" + message);
+        pubnub.publish(smartPanelCh, message, new Callback() {
+            @Override
+            public void successCallback(String channel, Object message) {
+                super.successCallback(channel, message);
+                log("Message Sent: " + message);
+            }
+
+            @Override
+            public void errorCallback(String channel, PubnubError error) {
+                super.errorCallback(channel, error);
+                log("Error sending message: " + error);
+            }
+        });
+    }
+
     private void addBreaker() {
-        breakerNameDialog.show();
+        new MaterialDialog.Builder(this)
+                .title("New Breaker")
+                .content("Are you sure you want to remove this breaker?")
+                .positiveText("Yes")
+                .input("Breaker Name", null, new MaterialDialog.InputCallback() {
+                    @Override
+                    public void onInput(@NonNull MaterialDialog materialDialog, CharSequence input) {
+                        final Breaker tempBreaker = new Breaker(input.toString());
+                        new MaterialDialog.Builder(MainActivity.this)
+                                .title("Set GPIO")
+                                .content("Please enter GPIO number:")
+                                .inputType(InputType.TYPE_CLASS_NUMBER)
+                                .inputRangeRes(1, 2, R.color.md_red_500)
+                                .input("3", null, new MaterialDialog.InputCallback() {
+                                    @Override
+                                    public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
+                                        tempBreaker.setGpioPin(input.toString());
+                                        addBreakerButton(tempBreaker.getName());
+                                        breakerList.add(tempBreaker);
+                                        db.putListObject(BREAKER_LIST, breakerList);
+                                    }
+                                })
+                                .positiveText("Confirm")
+                                .neutralText("Cancel")
+                                .show();
+                    }
+                })
+                .positiveText("Next")
+                .neutralText("Cancel")
+                .show();
     }
 
     private void log(String message) {
@@ -128,42 +249,5 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 .show();
 
         return false;
-    }
-
-
-    private void createDialogs() {
-        GPIODialog = new MaterialDialog.Builder(this)
-                .title("Set GPIO")
-                .content("Please enter GPIO number:")
-                .inputType(InputType.TYPE_CLASS_NUMBER)
-                .inputRangeRes(1, 2, R.color.md_red_500)
-                .input("3", null, new MaterialDialog.InputCallback() {
-                    @Override
-                    public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
-                        tempBreaker.setGpioPin(input.toString());
-                        addBreakerButton(tempBreaker.getName());
-                        breakerList.add(tempBreaker);
-                        db.putListObject(BREAKER_LIST, breakerList);
-                        tempBreaker = null;
-                    }
-                })
-                .positiveText("Confirm")
-                .neutralText("Cancel")
-                .build();
-
-        breakerNameDialog = new MaterialDialog.Builder(this)
-                .title("New Breaker")
-                .content("Are you sure you want to remove this breaker?")
-                .positiveText("Yes")
-                .input("Breaker Name", null, new MaterialDialog.InputCallback() {
-                    @Override
-                    public void onInput(@NonNull MaterialDialog materialDialog, CharSequence input) {
-                        tempBreaker = new Breaker(input.toString());
-                        GPIODialog.show();
-                    }
-                })
-                .positiveText("Next")
-                .neutralText("Cancel")
-                .build();
     }
 }
