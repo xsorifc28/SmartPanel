@@ -1,10 +1,14 @@
 package io.xsor.smartpanel;
 
+import android.annotation.SuppressLint;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 
@@ -31,12 +35,10 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
     private String publishKey;
     private String subscribeKey;
 
-    String UUID = "Samed-Nexus6P";
+    private String breakerName;
+    private String GPIOPin;
 
-    Button on, off;
-
-    String breakerName;
-    String gpioPin;
+    private Button on, off;
 
     // Message structure for processing on Raspberry Pi:
     // BREAKERNAME_GPIO_ACTION_CODE
@@ -62,8 +64,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         off.setOnClickListener(this);
 
         breakerName = getIntent().getStringExtra("breakerName");
-        gpioPin = getIntent().getStringExtra("gpioPin");
-        connectToPubnub();
+        GPIOPin = getIntent().getStringExtra("GPIOPin");
 
         noServerDialog = new MaterialDialog.Builder(OnOffActivity.this)
                 .title("Error")
@@ -74,6 +75,8 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
                         finish();
                     }
                 })
+                .positiveText("Exit")
+                .cancelable(false)
                 .build();
 
     }
@@ -81,6 +84,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
     @Override
     protected void onResume() {
         super.onResume();
+        connectToPubnub();
     }
 
     @Override
@@ -90,10 +94,29 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         pubnub.unsubscribe(smartPanelCh);
     }
 
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        MenuInflater inflater = getMenuInflater();
+        inflater.inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        // Handle item selection
+        switch (item.getItemId()) {
+            case R.id.shutdown:
+                sendMessage("shutdown");
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
     private void connectToPubnub() {
 
         pubnub = new Pubnub(publishKey, subscribeKey);
-        pubnub.setUUID(UUID);
+        pubnub.setUUID("Samed-Nexus6P");
 
         try {
             pubnub.subscribe(smartPanelCh, subscribeCallback);
@@ -108,7 +131,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         public void connectCallback(String channel, Object message) {
             log("subscribeCallback, CONNECT to:" + channel + " : " + message.toString());
             sendMessage(breakerName + SEP
-                    + gpioPin + SEP
+                    + GPIOPin + SEP
                     + STATUS);
         }
 
@@ -127,6 +150,35 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         @Override
         public void successCallback(String channel, Object message) {
             log("subscribeCallback, SUCCESS on " + channel + " : " + message.toString());
+            //log("Message has been received: ");
+            String[] splitMsg = message.toString().split(SEP);
+            if(splitMsg[0].equals(STATUS_STR)) {
+                if(Integer.valueOf(splitMsg[2]) == OFF) {
+                    runOnUiThread(new Runnable() {
+                        @SuppressLint("SetTextI18n")
+                        @Override
+                        public void run() {
+                            off.setEnabled(false);
+                            off.setText("[Off]");
+                            on.setEnabled(true);
+                            on.setText("On");
+                        }
+                    });
+
+                } else if(Integer.valueOf(splitMsg[2]) == ON) {
+                    runOnUiThread(new Runnable() {
+                        @SuppressLint("SetTextI18n")
+                        @Override
+                        public void run() {
+                            off.setEnabled(true);
+                            off.setText("Off");
+                            on.setEnabled(false);
+                            on.setText("[On]");
+                        }
+                    });
+
+                }
+            }
         }
 
         @Override
@@ -141,25 +193,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
             super.connectCallback(channel, message);
 
             log("presenceCallback, CONNECT to " + channel + " : " + message.toString());
-            pubnub.hereNow(smartPanelCh, new Callback() {
-                @Override
-                public void successCallback(String channel, Object message) {
-                    super.successCallback(channel, message);
-
-                    JSONObject jo = (JSONObject) message;
-
-                    try {
-                        JSONArray uuids = jo.getJSONArray("uuids");
-                        log("Array of uuids: " + uuids.toString());
-                        if(!uuidExists(uuids,SERVER_UUID)) {
-                            log("Matt not found.");
-                            //noServerDialog.show();
-                        }
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                }
-            });
+            checkServerPresence();
         }
 
         @Override
@@ -173,8 +207,34 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
         }
     };
 
+    private void checkServerPresence() {
+        pubnub.hereNow(smartPanelCh, new Callback() {
+            @Override
+            public void successCallback(String channel, Object message) {
+                super.successCallback(channel, message);
+
+                JSONObject jo = (JSONObject) message;
+
+                try {
+                    JSONArray uuids = jo.getJSONArray("uuids");
+                    log("Array of uuids: " + uuids.toString());
+                    if(!uuidExists(uuids,SERVER_UUID)) {
+                        log("Matt not found.");
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                noServerDialog.show();
+                            }
+                        });
+                    }
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
     private boolean uuidExists(JSONArray jsonArray, String usernameToFind){
-        return jsonArray.toString().contains("\"username\":\""+usernameToFind+"\"");
+        return jsonArray.toString().contains(usernameToFind);
     }
 
     @Override
@@ -192,7 +252,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
                             @Override
                             public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
                                 sendMessage(breakerName + SEP
-                                        + gpioPin + SEP
+                                        + GPIOPin + SEP
                                         + ON + SEP
                                         + input);
                             }
@@ -212,7 +272,7 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
                             @Override
                             public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
                                 sendMessage(breakerName + SEP
-                                        + gpioPin + SEP
+                                        + GPIOPin + SEP
                                         + OFF + SEP
                                         + input);
                             }
@@ -231,13 +291,13 @@ public class OnOffActivity extends AppCompatActivity implements View.OnClickList
             @Override
             public void successCallback(String channel, Object message) {
                 super.successCallback(channel, message);
-                log("Success: " + message);
+                log("Message Sent: " + message);
             }
 
             @Override
             public void errorCallback(String channel, PubnubError error) {
                 super.errorCallback(channel, error);
-                log("Error: " + error);
+                log("Error sending message: " + error);
             }
         });
     }

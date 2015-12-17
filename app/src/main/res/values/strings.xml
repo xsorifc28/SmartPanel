@@ -65,4 +65,5 @@
     <string name="on">On</string>
     <string name="title_activity_main">MainActivity</string>
     <string name="add_breaker">Add</string>
+    <string name="shutdown">Shutdown</string>
 </resources>
